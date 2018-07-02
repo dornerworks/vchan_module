@@ -49,10 +49,14 @@ static struct class *vchan_cdev_class;
 #define VCHAN_WRITE   1
 #define VCHAN_NUM_DIR 2
 
+#define VCHAN_OFF     0
+#define VCHAN_ON      1
+
 #define VCHAN_SIZE(v)  (v->end - v->start)
 
-#define VCHAN_READ_TOKEN  0xfabbdad
-#define VCHAN_WRITE_TOKEN 0xfabbdab
+#define VCHAN_READ_TOKEN     0xfabbdad
+#define VCHAN_WRITE_TOKEN    0xfabbdab
+#define VCHAN_REGISTER_TOKEN 0xfabbdac
 
 #define VCHAN_BAD_CHECKSUM  0xFF
 #define VCHAN_MALLOC_FAILED 0xEE
@@ -107,6 +111,20 @@ static int get_major(dev_t major)
         }
     }
     return (i < num_vchans) ? i : -1;
+}
+
+static int register_vchan(int device, int status)
+{
+    register uint64_t port asm("x0") = lp[device]->port;
+    register uint64_t direction asm("x1") = lp[device]->dir;
+    register uint64_t stat asm("x2") = status;
+    register uint64_t token asm("x7") = VCHAN_REGISTER_TOKEN;
+
+    asm volatile ("hvc #0"
+                  :
+                  : "r" (port), "r" (stat), "r" (direction), "r"(token));
+
+    return 0;
 }
 
 static ssize_t vchan_read(struct file *f, char __user *buf, size_t len, loff_t *off)
@@ -359,6 +377,8 @@ static int vchan_probe(struct platform_device *pdev)
         dev_err(dev, "Failed to initialize character device\n");
         goto error2;
     }
+
+    register_vchan(num_vchans, VCHAN_ON);
 
     num_vchans++;
 
