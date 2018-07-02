@@ -295,6 +295,12 @@ static int vchan_probe(struct platform_device *pdev)
 
     int rc = 0;
 
+    if (num_vchans >= MAX_VCHANS)
+    {
+        printk("Too many virtual channels in device tree\n");
+        return -ENODEV;
+    }
+
     current_vchan = (struct vchan_local *) kzalloc(sizeof(struct vchan_local), GFP_KERNEL);
     if (!current_vchan)
     {
