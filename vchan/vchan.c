@@ -401,14 +401,20 @@ error1:
 static int vchan_remove(struct platform_device *pdev)
 {
     struct device *dev = &pdev->dev;
-    int id = get_major(dev->devt);
-    struct vchan_local *vchan = lp[id];
 
-    release_mem_region(vchan->start, vchan->end - vchan->start + 1);
-
-    kfree(vchan);
-
-    num_vchans--;
+    int i;
+    for (i = 0; i < num_vchans; i++)
+    {
+        struct vchan_local *vchan = lp[i];
+        register_vchan(i, VCHAN_OFF);
+        release_mem_region(vchan->start, vchan->end - vchan->start + 1);
+        device_destroy(vchan_cdev_class, MKDEV(vchan->major, vchan->dir));
+        if(lp[i] != NULL) {
+            kfree(lp[i]);
+        }
+    }
+    class_destroy(vchan_cdev_class);
+    num_vchans = 0;
 
     dev_set_drvdata(dev, NULL);
     return 0;
@@ -443,14 +449,6 @@ static int __init vchan_init(void)
 
 static void __exit vchan_exit(void)
 {
-    int i;
-
-    for (i = 0; i < MAX_VCHANS; i++) {
-        if(lp[i] != NULL) {
-            kfree(lp[i]);
-        }
-    }
-
     platform_driver_unregister(&vchan_driver);
     printk(KERN_ALERT "Removing vchan.\n");
 }
