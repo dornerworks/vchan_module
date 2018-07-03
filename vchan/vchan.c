@@ -78,6 +78,8 @@ static int num_vchans = 0;
 
 static const char * directions[VCHAN_NUM_DIR] = {"rx", "tx"};
 
+static DEFINE_SPINLOCK(vchan_lock);
+
 int vchan_open(struct inode *inode, struct file *filp) {
     return 0;
 }
@@ -129,11 +131,14 @@ static int register_vchan(int device, int status)
 
 static ssize_t vchan_read(struct file *f, char __user *buf, size_t len, loff_t *off)
 {
+    spin_lock(&vchan_lock);
+
     int id = get_major(f->f_inode->i_rdev);
 
     /* Need to get the information of the calling device */
     if (id == -1)
     {
+        spin_unlock(&vchan_lock);
         return -EFAULT;
     }
 
@@ -149,18 +154,24 @@ static ssize_t vchan_read(struct file *f, char __user *buf, size_t len, loff_t *
 
         if(len > size)
         {
+            spin_unlock(&vchan_lock);
             printk("Message size greater than available buffer somehow\n");
             return -EAGAIN;
         }
+
         for (i = 0; i < len; i++)
         {
             byte = ioread8((u8 *)vchan->addr + i);
             chk += byte;
             if (copy_to_user(buf + i, &byte, 1))
             {
+                spin_unlock(&vchan_lock);
                 return -EFAULT;
             }
         }
+
+        spin_unlock(&vchan_lock);
+
         if (chk != hyp_chk)
         {
             return -EAGAIN;
@@ -169,6 +180,7 @@ static ssize_t vchan_read(struct file *f, char __user *buf, size_t len, loff_t *
     }
     else
     {
+        spin_unlock(&vchan_lock);
         return -EFAULT;
     }
     return 0;
@@ -176,11 +188,14 @@ static ssize_t vchan_read(struct file *f, char __user *buf, size_t len, loff_t *
 
 static ssize_t vchan_write(struct file *f, const char __user *buf, size_t len, loff_t *off)
 {
+    spin_lock(&vchan_lock);
+
     int id = get_major(f->f_inode->i_rdev);
 
     /* Need to get the information of the calling device */
     if (id == -1)
     {
+        spin_unlock(&vchan_lock);
         return -EFAULT;
     }
 
@@ -197,10 +212,12 @@ static ssize_t vchan_write(struct file *f, const char __user *buf, size_t len, l
         {
             len = size;
         }
+
         for (i = 0; i < len; i++)
         {
             if (copy_from_user(&byte, buf + i, 1))
             {
+                spin_unlock(&vchan_lock);
                 return -EFAULT;
             }
             chk += byte;
@@ -208,6 +225,8 @@ static ssize_t vchan_write(struct file *f, const char __user *buf, size_t len, l
         }
 
         call_into_hypervisor(VCHAN_WRITE, &chk, &len, id);
+
+        spin_unlock(&vchan_lock);
 
         if ((len == 0) && (chk == VCHAN_MALLOC_FAILED)) {
             return -ENOMEM;
@@ -221,6 +240,7 @@ static ssize_t vchan_write(struct file *f, const char __user *buf, size_t len, l
     }
     else
     {
+        spin_unlock(&vchan_lock);
         return -EFAULT;
     }
     return 0;
@@ -400,6 +420,7 @@ error1:
 
 static int vchan_remove(struct platform_device *pdev)
 {
+    spin_lock(&vchan_lock);
     struct device *dev = &pdev->dev;
 
     int i;
@@ -417,6 +438,8 @@ static int vchan_remove(struct platform_device *pdev)
     num_vchans = 0;
 
     dev_set_drvdata(dev, NULL);
+
+    spin_unlock(&vchan_lock);
     return 0;
 }
 
